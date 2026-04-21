@@ -1,14 +1,16 @@
 import asyncio
 import sys
 import json
+import time
 import paho.mqtt.client as mqtt
 
-# Аргументы из run.sh
 NVR_PORT = int(sys.argv[1])
 MQTT_HOST = sys.argv[2]
 MQTT_PORT = int(sys.argv[3])
 
-# Типы событий HiLook/Hikvision
+# Через сколько секунд без событий считаем движение закончившимся
+MOTION_TIMEOUT = 30
+
 EVENT_TYPES = {
     0x01: "io_alarm",
     0x02: "video_loss",
@@ -17,11 +19,13 @@ EVENT_TYPES = {
     0x06: "tamper",
 }
 
-# MQTT топики
-TOPIC_EVENT   = "nvr/channel/{channel}/event"
-TOPIC_STATUS  = "nvr/status"
+TOPIC_EVENT  = "nvr/channel/{channel}/state"
+TOPIC_STATUS = "nvr/status"
 
 mqtt_client = mqtt.Client()
+
+# Словарь: channel -> asyncio.TimerHandle
+motion_timers = {}
 
 def mqtt_connect():
     try:
@@ -32,61 +36,73 @@ def mqtt_connect():
     except Exception as e:
         print(f"[MQTT] Connection failed: {e}")
 
-def publish_event(channel, event_type):
-    event_name = EVENT_TYPES.get(event_type, f"unknown_{event_type:#04x}")
+def publish_state(channel, state):
     topic = TOPIC_EVENT.format(channel=channel)
-    payload = json.dumps({
-        "channel": channel,
-        "event": event_name,
-    })
-    mqtt_client.publish(topic, payload, retain=False)
-    print(f"[EVENT] channel={channel} event={event_name} → {topic}")
+    payload = json.dumps({"channel": channel, "state": state})
+    mqtt_client.publish(topic, payload, retain=True)
+    print(f"[STATE] channel={channel} → {state}")
+
+def motion_clear(channel):
+    publish_state(channel, "clear")
+    motion_timers.pop(channel, None)
+
+def handle_motion(channel):
+    # Отменяем предыдущий таймер если был
+    if channel in motion_timers:
+        motion_timers[channel].cancel()
+
+    # Публикуем motion
+    publish_state(channel, "motion")
+
+    # Запускаем таймер на clear
+    loop = asyncio.get_event_loop()
+    timer = loop.call_later(MOTION_TIMEOUT, motion_clear, channel)
+    motion_timers[channel] = timer
 
 def parse_packet(data: bytes):
-    print(f"[PKT] Received {len(data)} bytes")
+    # Игнорируем heartbeat и keepalive
+    if len(data) != 1323:
+        return
 
-    # Пакет регистрации устройства (~387 байт)
-    if len(data) >= 0x8D:
-        try:
-            model = data[0x67:0x8D].decode('ascii', errors='ignore').rstrip('\x00')
-            if model:
-                print(f"[REG] Device: {model}")
-        except Exception:
-            pass
+    print(f"[PKT] Alarm packet {len(data)} bytes")
 
-    # Пакет тревоги
-    if len(data) >= 0x0299:
-        try:
-            year   = (data[0x020F] << 8) | data[0x0210]
-            month  = data[0x0211]
-            day    = data[0x0212]
-            hour   = data[0x0213]
-            minute = data[0x0214]
-            second = data[0x0215]
-            ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+    try:
+        model = data[0x67:0x8D].decode('ascii', errors='ignore').rstrip('\x00')
+        if model:
+            print(f"[REG] Device: {model}")
+    except Exception:
+        pass
 
-            channel   = data[0x0297]
-            ev_type   = data[0x0298]
+    try:
+        year   = (data[0x020F] << 8) | data[0x0210]
+        month  = data[0x0211]
+        day    = data[0x0212]
+        hour   = data[0x0213]
+        minute = data[0x0214]
+        second = data[0x0215]
+        ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
 
-            print(f"[ALARM] {ts} channel={channel} type=0x{ev_type:02X}")
-            publish_event(channel, ev_type)
-        except Exception as e:
-            print(f"[PARSE] Error: {e}")
+        channel  = data[0x0297]
+        ev_type  = data[0x0298]
+        ev_name  = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
+
+        print(f"[ALARM] {ts} channel={channel} type={ev_name}")
+        handle_motion(channel)
+    except Exception as e:
+        print(f"[PARSE] Error: {e}")
 
 async def handle_connection(reader, writer):
     addr = writer.get_extra_info("peername")
-    print(f"[TCP] Connect from {addr}")
     try:
         data = await asyncio.wait_for(reader.read(4096), timeout=10.0)
         if data:
             parse_packet(data)
     except asyncio.TimeoutError:
-        print(f"[TCP] Timeout {addr}")
+        pass
     except Exception as e:
         print(f"[TCP] Error: {e}")
     finally:
         writer.close()
-        print(f"[TCP] Disconnect {addr}")
 
 async def main():
     mqtt_connect()
