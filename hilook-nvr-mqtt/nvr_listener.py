@@ -50,41 +50,22 @@ def handle_motion(channel):
     motion_timers[channel] = timer
 
 def parse_packet(data: bytes):
-    # Логируем все пакеты для диагностики
-    hex_preview = ' '.join(f'{b:02X}' for b in data[:32])
-    print(f"[PKT] {len(data)} bytes | {hex_preview}")
-
-    # Пропускаем явный мусор
     if len(data) < 20:
-        print(f"[PKT] skip tiny packet")
         return
 
-    # Пробуем парсить тревогу — офсет 0x0297/0x0298
-    if len(data) >= 0x0299:
-        try:
-            channel  = data[0x0297]
-            ev_type  = data[0x0298]
+    # Heartbeat — пропускаем тихо
+    if len(data) in (799, 803, 11):
+        return
 
-            # Пропускаем нулевые события
-            if channel == 0 and ev_type == 0:
-                print(f"[PKT] heartbeat, skip")
-                return
-
-            year   = (data[0x020F] << 8) | data[0x0210]
-            month  = data[0x0211]
-            day    = data[0x0212]
-            hour   = data[0x0213]
-            minute = data[0x0214]
-            second = data[0x0215]
-            ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
-
-            ev_name = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
-            print(f"[ALARM] {ts} channel={channel} event={ev_name}")
-            handle_motion(channel)
-        except Exception as e:
-            print(f"[PARSE] Error: {e}")
-    else:
-        print(f"[PKT] short packet {len(data)}b, skip")
+    # Alarm пакет — дампим полностью
+    print(f"[PKT] Alarm {len(data)} bytes")
+    
+    # Все ненулевые байты
+    nonzero = [(f"0x{i:04X}", f"0x{data[i]:02X}", data[i]) 
+               for i in range(len(data)) if data[i] != 0]
+    for offset, hexval, intval in nonzero:
+        asc = chr(intval) if 32 <= intval < 127 else "."
+        print(f"  [{offset}] = {hexval} ({intval:3d}) '{asc}'")
 
 async def handle_connection(reader, writer):
     try:
