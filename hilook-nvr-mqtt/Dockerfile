@@ -1,6 +1,6 @@
 FROM python:3.11-alpine
 
-RUN pip3 install paho-mqtt
+RUN apk add --no-cache jq && pip3 install paho-mqtt
 
 COPY run.sh /
 COPY nvr_listener.py /
