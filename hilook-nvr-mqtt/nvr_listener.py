@@ -1,15 +1,12 @@
 import asyncio
 import sys
 import json
-import time
 import paho.mqtt.client as mqtt
 
-NVR_PORT = int(sys.argv[1])
-MQTT_HOST = sys.argv[2]
-MQTT_PORT = int(sys.argv[3])
-
-# Через сколько секунд без событий считаем движение закончившимся
-MOTION_TIMEOUT = 30
+NVR_PORT       = int(sys.argv[1])
+MQTT_HOST      = sys.argv[2]
+MQTT_PORT      = int(sys.argv[3])
+MOTION_TIMEOUT = int(sys.argv[4])
 
 EVENT_TYPES = {
     0x01: "io_alarm",
@@ -23,8 +20,6 @@ TOPIC_EVENT  = "nvr/channel/{channel}/state"
 TOPIC_STATUS = "nvr/status"
 
 mqtt_client = mqtt.Client()
-
-# Словарь: channel -> asyncio.TimerHandle
 motion_timers = {}
 
 def mqtt_connect():
@@ -47,52 +42,51 @@ def motion_clear(channel):
     motion_timers.pop(channel, None)
 
 def handle_motion(channel):
-    # Отменяем предыдущий таймер если был
     if channel in motion_timers:
         motion_timers[channel].cancel()
-
-    # Публикуем motion
     publish_state(channel, "motion")
-
-    # Запускаем таймер на clear
     loop = asyncio.get_event_loop()
     timer = loop.call_later(MOTION_TIMEOUT, motion_clear, channel)
     motion_timers[channel] = timer
 
 def parse_packet(data: bytes):
-    # Игнорируем heartbeat и keepalive
-    if len(data) != 1323:
+    # Логируем все пакеты для диагностики
+    hex_preview = ' '.join(f'{b:02X}' for b in data[:32])
+    print(f"[PKT] {len(data)} bytes | {hex_preview}")
+
+    # Пропускаем явный мусор
+    if len(data) < 20:
+        print(f"[PKT] skip tiny packet")
         return
 
-    print(f"[PKT] Alarm packet {len(data)} bytes")
+    # Пробуем парсить тревогу — офсет 0x0297/0x0298
+    if len(data) >= 0x0299:
+        try:
+            channel  = data[0x0297]
+            ev_type  = data[0x0298]
 
-    try:
-        model = data[0x67:0x8D].decode('ascii', errors='ignore').rstrip('\x00')
-        if model:
-            print(f"[REG] Device: {model}")
-    except Exception:
-        pass
+            # Пропускаем нулевые события
+            if channel == 0 and ev_type == 0:
+                print(f"[PKT] heartbeat, skip")
+                return
 
-    try:
-        year   = (data[0x020F] << 8) | data[0x0210]
-        month  = data[0x0211]
-        day    = data[0x0212]
-        hour   = data[0x0213]
-        minute = data[0x0214]
-        second = data[0x0215]
-        ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+            year   = (data[0x020F] << 8) | data[0x0210]
+            month  = data[0x0211]
+            day    = data[0x0212]
+            hour   = data[0x0213]
+            minute = data[0x0214]
+            second = data[0x0215]
+            ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
 
-        channel  = data[0x0297]
-        ev_type  = data[0x0298]
-        ev_name  = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
-
-        print(f"[ALARM] {ts} channel={channel} type={ev_name}")
-        handle_motion(channel)
-    except Exception as e:
-        print(f"[PARSE] Error: {e}")
+            ev_name = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
+            print(f"[ALARM] {ts} channel={channel} event={ev_name}")
+            handle_motion(channel)
+        except Exception as e:
+            print(f"[PARSE] Error: {e}")
+    else:
+        print(f"[PKT] short packet {len(data)}b, skip")
 
 async def handle_connection(reader, writer):
-    addr = writer.get_extra_info("peername")
     try:
         data = await asyncio.wait_for(reader.read(4096), timeout=10.0)
         if data:
