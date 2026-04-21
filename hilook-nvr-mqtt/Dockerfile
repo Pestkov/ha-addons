@@ -1,6 +1,6 @@
-FROM ghcr.io/home-assistant/aarch64-base-python:3.11
+FROM python:3.11-alpine
 
-RUN pip3 install paho-mqtt --break-system-packages
+RUN pip3 install paho-mqtt
 
 COPY run.sh /
 COPY nvr_listener.py /
