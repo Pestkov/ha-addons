@@ -1,11 +1,12 @@
 import asyncio
 import sys
 import json
+import time
 import paho.mqtt.client as mqtt
 
 sys.stdout.reconfigure(line_buffering=True)
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 
 NVR_PORT       = int(sys.argv[1])
 MQTT_HOST      = sys.argv[2]
@@ -44,13 +45,14 @@ def mqtt_announce():
                 "manufacturer": "HiLook"
             }
         })
-        mqtt_client.publish(topic, payload, retain=True)
-        print(f"[DISC] Announced channel {ch}")
+        result = mqtt_client.publish(topic, payload, retain=True)
+        print(f"[DISC] Announced channel {ch} rc={result.rc}")
 
 def mqtt_connect():
     try:
         mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
         mqtt_client.loop_start()
+        time.sleep(1)
         print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
         mqtt_client.publish(TOPIC_STATUS, "online", retain=True)
         mqtt_announce()
@@ -121,14 +123,4 @@ async def handle_connection(reader, writer):
         writer.close()
 
 async def main():
-    print(f"=== HiLook NVR Listener v{VERSION} ===")
-    mqtt_connect()
-    server = await asyncio.start_server(
-        handle_connection, "0.0.0.0", NVR_PORT
-    )
-    print(f"[TCP] Listening on 0.0.0.0:{NVR_PORT}")
-    async with server:
-        await server.serve_forever()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    print(
