@@ -6,12 +6,14 @@ import paho.mqtt.client as mqtt
 
 sys.stdout.reconfigure(line_buffering=True)
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 
 NVR_PORT       = int(sys.argv[1])
 MQTT_HOST      = sys.argv[2]
 MQTT_PORT      = int(sys.argv[3])
-MOTION_TIMEOUT = int(sys.argv[4])
+MQTT_USER      = sys.argv[4]
+MQTT_PASSWORD  = sys.argv[5]
+MOTION_TIMEOUT = int(sys.argv[6])
 
 EVENT_TYPES = {
     0x01: "io_alarm",
@@ -52,6 +54,8 @@ def on_connect(client, userdata, flags, rc):
 
 def mqtt_connect():
     mqtt_client.on_connect = on_connect
+    if MQTT_USER:
+        mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
     mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     mqtt_client.loop_start()
 
