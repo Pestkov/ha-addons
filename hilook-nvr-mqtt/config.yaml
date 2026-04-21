@@ -18,7 +18,9 @@ options:
   mqtt_host: "core-mosquitto"
   mqtt_port: 1883
   nvr_port: 6062
+  motion_timeout: 30
 schema:
   mqtt_host: str
   mqtt_port: int
   nvr_port: int
+  motion_timeout: int
