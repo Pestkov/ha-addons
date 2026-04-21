@@ -6,7 +6,7 @@ import paho.mqtt.client as mqtt
 
 sys.stdout.reconfigure(line_buffering=True)
 
-VERSION = "1.0.3"
+VERSION = "1.0.5"
 
 NVR_PORT       = int(sys.argv[1])
 MQTT_HOST      = sys.argv[2]
@@ -27,7 +27,9 @@ TOPIC_STATUS = "nvr/status"
 mqtt_client = mqtt.Client()
 motion_timers = {}
 
-def mqtt_announce():
+def on_connect(client, userdata, flags, rc):
+    print(f"[MQTT] Connected rc={rc}")
+    client.publish(TOPIC_STATUS, "online", retain=True)
     for ch in range(1, 5):
         topic = f"homeassistant/binary_sensor/nvr_channel_{ch}/config"
         payload = json.dumps({
@@ -45,19 +47,13 @@ def mqtt_announce():
                 "manufacturer": "HiLook"
             }
         })
-        result = mqtt_client.publish(topic, payload, retain=True)
-        print(f"[DISC] Announced channel {ch} rc={result.rc}")
+        result = client.publish(topic, payload, retain=True)
+        print(f"[DISC] channel {ch} rc={result.rc}")
 
 def mqtt_connect():
-    try:
-        mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
-        mqtt_client.loop_start()
-        time.sleep(1)
-        print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
-        mqtt_client.publish(TOPIC_STATUS, "online", retain=True)
-        mqtt_announce()
-    except Exception as e:
-        print(f"[MQTT] Connection failed: {e}")
+    mqtt_client.on_connect = on_connect
+    mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+    mqtt_client.loop_start()
 
 def publish_state(channel, state):
     topic = TOPIC_EVENT.format(channel=channel)
