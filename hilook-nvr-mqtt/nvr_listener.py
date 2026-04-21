@@ -3,6 +3,8 @@ import sys
 import json
 import paho.mqtt.client as mqtt
 
+sys.stdout.reconfigure(line_buffering=True)  # ← добавь эту строку
+
 NVR_PORT       = int(sys.argv[1])
 MQTT_HOST      = sys.argv[2]
 MQTT_PORT      = int(sys.argv[3])
