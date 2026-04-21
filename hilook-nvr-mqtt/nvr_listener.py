@@ -123,4 +123,14 @@ async def handle_connection(reader, writer):
         writer.close()
 
 async def main():
-    print(
+    print(f"=== HiLook NVR Listener v{VERSION} ===")
+    mqtt_connect()
+    server = await asyncio.start_server(
+        handle_connection, "0.0.0.0", NVR_PORT
+    )
+    print(f"[TCP] Listening on 0.0.0.0:{NVR_PORT}")
+    async with server:
+        await server.serve_forever()
+
+if __name__ == "__main__":
+    asyncio.run(main())
