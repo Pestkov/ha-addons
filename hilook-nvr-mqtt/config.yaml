@@ -22,4 +22,3 @@ schema:
   mqtt_host: str
   mqtt_port: int
   nvr_port: int
-image: "ghcr.io/home-assistant/{arch}-base-python:3.11"
