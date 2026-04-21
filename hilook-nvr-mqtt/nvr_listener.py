@@ -3,7 +3,9 @@ import sys
 import json
 import paho.mqtt.client as mqtt
 
-sys.stdout.reconfigure(line_buffering=True)  # ← добавь эту строку
+sys.stdout.reconfigure(line_buffering=True)
+
+VERSION = "1.0.2"
 
 NVR_PORT       = int(sys.argv[1])
 MQTT_HOST      = sys.argv[2]
@@ -24,12 +26,34 @@ TOPIC_STATUS = "nvr/status"
 mqtt_client = mqtt.Client()
 motion_timers = {}
 
+def mqtt_announce():
+    for ch in range(1, 5):
+        topic = f"homeassistant/binary_sensor/nvr_channel_{ch}/config"
+        payload = json.dumps({
+            "name": f"NVR Camera {ch}",
+            "unique_id": f"nvr_camera_{ch}",
+            "state_topic": f"nvr/channel/{ch}/state",
+            "value_template": "{{ value_json.state }}",
+            "payload_on": "motion",
+            "payload_off": "clear",
+            "device_class": "motion",
+            "device": {
+                "identifiers": ["hilook_nvr"],
+                "name": "HiLook NVR",
+                "model": "NVR-104MH-D04",
+                "manufacturer": "HiLook"
+            }
+        })
+        mqtt_client.publish(topic, payload, retain=True)
+        print(f"[DISC] Announced channel {ch}")
+
 def mqtt_connect():
     try:
         mqtt_client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
         mqtt_client.loop_start()
         print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
         mqtt_client.publish(TOPIC_STATUS, "online", retain=True)
+        mqtt_announce()
     except Exception as e:
         print(f"[MQTT] Connection failed: {e}")
 
@@ -54,7 +78,6 @@ def handle_motion(channel):
 def parse_packet(data: bytes):
     if len(data) < 20:
         return
-
     if len(data) in (799, 803, 11):
         return
 
@@ -76,9 +99,9 @@ def parse_packet(data: bytes):
         second = data[0x0215]
         ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
 
-        channel  = data[0x021A]
-        ev_type  = data[0x0298]
-        ev_name  = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
+        channel = data[0x021A]
+        ev_type = data[0x0298]
+        ev_name = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
 
         print(f"[ALARM] {ts} channel={channel} event={ev_name}")
         handle_motion(channel)
@@ -98,6 +121,7 @@ async def handle_connection(reader, writer):
         writer.close()
 
 async def main():
+    print(f"=== HiLook NVR Listener v{VERSION} ===")
     mqtt_connect()
     server = await asyncio.start_server(
         handle_connection, "0.0.0.0", NVR_PORT
