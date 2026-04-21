@@ -53,19 +53,35 @@ def parse_packet(data: bytes):
     if len(data) < 20:
         return
 
-    # Heartbeat — пропускаем тихо
     if len(data) in (799, 803, 11):
         return
 
-    # Alarm пакет — дампим полностью
     print(f"[PKT] Alarm {len(data)} bytes")
-    
-    # Все ненулевые байты
-    nonzero = [(f"0x{i:04X}", f"0x{data[i]:02X}", data[i]) 
-               for i in range(len(data)) if data[i] != 0]
-    for offset, hexval, intval in nonzero:
-        asc = chr(intval) if 32 <= intval < 127 else "."
-        print(f"  [{offset}] = {hexval} ({intval:3d}) '{asc}'")
+
+    try:
+        model = data[0x67:0x8D].decode('ascii', errors='ignore').rstrip('\x00')
+        if model:
+            print(f"[REG] Device: {model}")
+    except Exception:
+        pass
+
+    try:
+        year   = (data[0x020F] << 8) | data[0x0210]
+        month  = data[0x0211]
+        day    = data[0x0212]
+        hour   = data[0x0213]
+        minute = data[0x0214]
+        second = data[0x0215]
+        ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
+
+        channel  = data[0x021A]
+        ev_type  = data[0x0298]
+        ev_name  = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
+
+        print(f"[ALARM] {ts} channel={channel} event={ev_name}")
+        handle_motion(channel)
+    except Exception as e:
+        print(f"[PARSE] Error: {e}")
 
 async def handle_connection(reader, writer):
     try:
