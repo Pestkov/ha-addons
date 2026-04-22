@@ -6,7 +6,7 @@ import paho.mqtt.client as mqtt
 
 sys.stdout.reconfigure(line_buffering=True)
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 
 NVR_PORT       = int(sys.argv[1])
 MQTT_HOST      = sys.argv[2]
@@ -14,6 +14,8 @@ MQTT_PORT      = int(sys.argv[3])
 MQTT_USER      = sys.argv[4]
 MQTT_PASSWORD  = sys.argv[5]
 MOTION_TIMEOUT = int(sys.argv[6])
+
+LOG_FILE = "/share/nvr_packets.log"
 
 EVENT_TYPES = {
     0x01: "io_alarm",
@@ -28,6 +30,18 @@ TOPIC_STATUS = "nvr/status"
 
 mqtt_client = mqtt.Client()
 motion_timers = {}
+
+def log_packet(data: bytes, channel: int, ev_name: str, ts: str):
+    try:
+        with open(LOG_FILE, "a") as f:
+            f.write(f"\n=== {ts} channel={channel} event={ev_name} size={len(data)} ===\n")
+            # Все ненулевые байты
+            for i in range(len(data)):
+                if data[i] != 0:
+                    asc = chr(data[i]) if 32 <= data[i] < 127 else '.'
+                    f.write(f"  [0x{i:04X}] = 0x{data[i]:02X} ({data[i]:3d}) '{asc}'\n")
+    except Exception as e:
+        print(f"[LOG] Write error: {e}")
 
 def on_connect(client, userdata, flags, rc):
     print(f"[MQTT] Connected rc={rc}")
@@ -86,13 +100,6 @@ def parse_packet(data: bytes):
     print(f"[PKT] Alarm {len(data)} bytes")
 
     try:
-        model = data[0x67:0x8D].decode('ascii', errors='ignore').rstrip('\x00')
-        if model:
-            print(f"[REG] Device: {model}")
-    except Exception:
-        pass
-
-    try:
         year   = (data[0x020F] << 8) | data[0x0210]
         month  = data[0x0211]
         day    = data[0x0212]
@@ -106,6 +113,7 @@ def parse_packet(data: bytes):
         ev_name = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
 
         print(f"[ALARM] {ts} channel={channel} event={ev_name}")
+        log_packet(data, channel, ev_name, ts)
         handle_motion(channel)
     except Exception as e:
         print(f"[PARSE] Error: {e}")
