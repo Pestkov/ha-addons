@@ -92,13 +92,25 @@ def handle_motion(channel):
     motion_timers[channel] = timer
 
 def parse_packet(data: bytes):
-    if len(data) < 20:
-        return
-    if len(data) in (799, 803, 11):
+    # Пишем ВСЕ пакеты в лог для анализа
+    size = len(data)
+    
+    # Пропускаем только совсем мелкие
+    if size < 20:
         return
 
-    print(f"[PKT] Alarm {len(data)} bytes")
+    # Для heartbeat — пишем только размер и первые байты
+    if size in (799, 803, 11):
+        try:
+            with open(LOG_FILE, "a") as f:
+                hex4 = ' '.join(f'{data[i]:02X}' for i in range(min(8, size)))
+                f.write(f"[HB] size={size} | {hex4}\n")
+        except:
+            pass
+        return
 
+    # Alarm пакет — полный лог
+    print(f"[PKT] Alarm {size} bytes")
     try:
         year   = (data[0x020F] << 8) | data[0x0210]
         month  = data[0x0211]
@@ -107,11 +119,9 @@ def parse_packet(data: bytes):
         minute = data[0x0214]
         second = data[0x0215]
         ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
-
         channel = data[0x021A]
         ev_type = data[0x0298]
         ev_name = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
-
         print(f"[ALARM] {ts} channel={channel} event={ev_name}")
         log_packet(data, channel, ev_name, ts)
         handle_motion(channel)
