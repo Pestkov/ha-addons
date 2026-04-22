@@ -1,5 +1,5 @@
 name: "HiLook NVR MQTT"
-version: "1.0.6"
+version: "1.0.7"
 slug: "hilook_nvr_mqtt"
 description: "Listens TCP from HiLook/Hikvision NVR, publishes motion events to MQTT"
 url: "https://github.com/Pestkov/ha-addons"
