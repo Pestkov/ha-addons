@@ -6,7 +6,7 @@ import paho.mqtt.client as mqtt
 
 sys.stdout.reconfigure(line_buffering=True)
 
-VERSION = "1.0.7"
+VERSION = "1.0.10"
 
 NVR_PORT       = int(sys.argv[1])
 MQTT_HOST      = sys.argv[2]
