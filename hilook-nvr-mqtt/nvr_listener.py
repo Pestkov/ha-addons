@@ -92,14 +92,12 @@ def handle_motion(channel):
     motion_timers[channel] = timer
 
 def parse_packet(data: bytes):
-    # Пишем ВСЕ пакеты в лог для анализа
     size = len(data)
     
-    # Пропускаем только совсем мелкие
     if size < 20:
         return
 
-    # Для heartbeat — пишем только размер и первые байты
+    # Heartbeat — пишем в лог и пропускаем
     if size in (799, 803, 11):
         try:
             with open(LOG_FILE, "a") as f:
@@ -109,24 +107,51 @@ def parse_packet(data: bytes):
             pass
         return
 
-    # Alarm пакет — полный лог
-    print(f"[PKT] Alarm {size} bytes")
+    print(f"[PKT] size={size}")
+
     try:
-        year   = (data[0x020F] << 8) | data[0x0210]
-        month  = data[0x0211]
-        day    = data[0x0212]
-        hour   = data[0x0213]
-        minute = data[0x0214]
-        second = data[0x0215]
+        # Большой пакет (1323, 1331+)
+        if size >= 0x021B:
+            year   = (data[0x020F] << 8) | data[0x0210]
+            month  = data[0x0211]
+            day    = data[0x0212]
+            hour   = data[0x0213]
+            minute = data[0x0214]
+            second = data[0x0215]
+            channel = data[0x021A]
+            ev_type = data[0x0298]
+
+        # Маленький пакет (~807)
+        elif size >= 0x01A0:
+            year   = (data[0x0192] << 8) | data[0x0193] if data[0x0192] == 0x07 else 0
+            year   = (data[0x0193] << 8) | data[0x0194]
+            month  = data[0x0195]
+            day    = data[0x0196]
+            hour   = data[0x0197]
+            minute = data[0x0198]
+            second = data[0x0199]
+            channel = data[0x019E]
+            ev_type = data[0x021C]
+
+        else:
+            print(f"[PKT] unknown size {size}, skip")
+            log_packet(data, -1, "unknown", f"size={size}")
+            return
+
         ts = f"{year}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}"
-        channel = data[0x021A]
-        ev_type = data[0x0298]
         ev_name = EVENT_TYPES.get(ev_type, f"unknown_0x{ev_type:02X}")
+
         print(f"[ALARM] {ts} channel={channel} event={ev_name}")
         log_packet(data, channel, ev_name, ts)
-        handle_motion(channel)
+
+        if ev_type in EVENT_TYPES and channel > 0:
+            handle_motion(channel)
+        else:
+            print(f"[PKT] skip channel={channel} ev_type=0x{ev_type:02X}")
+
     except Exception as e:
         print(f"[PARSE] Error: {e}")
+        log_packet(data, -1, "parse_error", str(e))
 
 async def handle_connection(reader, writer):
     try:
